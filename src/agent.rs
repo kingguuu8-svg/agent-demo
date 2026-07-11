@@ -6,6 +6,7 @@ use std::{
 
 use futures::future::join_all;
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::{
@@ -118,14 +119,34 @@ impl Agent {
     }
 
     pub async fn run(&self, session: SessionKey, input: impl Into<String>) -> Result<AgentReply> {
+        self.run_cancellable(session, input, CancellationToken::new())
+            .await
+    }
+
+    pub async fn run_cancellable(
+        &self,
+        session: SessionKey,
+        input: impl Into<String>,
+        cancellation: CancellationToken,
+    ) -> Result<AgentReply> {
         let duration = self.config.max_duration;
-        match tokio::time::timeout(duration, self.run_inner(session, input.into())).await {
+        let result = tokio::time::timeout(
+            duration,
+            self.run_inner(session.clone(), input.into(), cancellation),
+        )
+        .await;
+        match result {
             Ok(result) => result,
             Err(_) => Err(AgentError::Deadline(duration.as_secs())),
         }
     }
 
-    async fn run_inner(&self, session: SessionKey, input: String) -> Result<AgentReply> {
+    async fn run_inner(
+        &self,
+        session: SessionKey,
+        input: String,
+        cancellation: CancellationToken,
+    ) -> Result<AgentReply> {
         self.memory.ensure_session(&session)?;
         self.memory
             .append_message(&session, &ChatMessage::user(input))?;
@@ -135,6 +156,13 @@ impl Agent {
         let mut repeated = 0;
 
         loop {
+            if cancellation.is_cancelled() {
+                self.memory.append_message(
+                    &session,
+                    &ChatMessage::assistant("Request stopped by the user."),
+                )?;
+                return Err(AgentError::Cancelled);
+            }
             if llm_calls >= self.config.max_llm_calls {
                 return Err(AgentError::LlmLimit(llm_calls));
             }
@@ -154,7 +182,16 @@ impl Agent {
             );
             self.observer.llm_started(llm_calls + 1);
             let started = Instant::now();
-            let response = self.llm.complete(&request).await?;
+            let response = tokio::select! {
+                response = self.llm.complete(&request) => response?,
+                _ = cancellation.cancelled() => {
+                    self.memory.append_message(
+                        &session,
+                        &ChatMessage::assistant("Request stopped by the user."),
+                    )?;
+                    return Err(AgentError::Cancelled);
+                }
+            };
             llm_calls += 1;
             self.observer.llm_finished(llm_calls, started.elapsed());
             trace_llm(llm_calls, started.elapsed(), &response);
@@ -184,7 +221,7 @@ impl Agent {
                 return Err(AgentError::ToolLimit(tool_calls));
             }
             tool_calls += calls.len();
-            let outputs = self.execute_batch(&session, &calls).await?;
+            let outputs = self.execute_batch(&session, &calls, &cancellation).await?;
             for (call, output) in calls.iter().zip(outputs) {
                 let serialized = serde_json::to_string(&output)?;
                 self.memory
@@ -205,6 +242,13 @@ impl Agent {
                     return Err(AgentError::NoProgress);
                 }
             }
+            if cancellation.is_cancelled() {
+                self.memory.append_message(
+                    &session,
+                    &ChatMessage::assistant("Request stopped by the user."),
+                )?;
+                return Err(AgentError::Cancelled);
+            }
         }
     }
 
@@ -212,6 +256,7 @@ impl Agent {
         &self,
         session: &SessionKey,
         calls: &[crate::model::ToolCall],
+        cancellation: &CancellationToken,
     ) -> Result<Vec<ToolOutput>> {
         let mut outputs: Vec<Option<ToolOutput>> = vec![None; calls.len()];
         let mut prepared = Vec::new();
@@ -262,22 +307,41 @@ impl Agent {
                 .iter()
                 .cloned()
                 .map(|call| self.execute_one(session.clone(), call));
-            for result in join_all(futures).await {
-                let (index, output) = result?;
-                outputs[index] = Some(output);
+            tokio::select! {
+                results = join_all(futures) => {
+                    for result in results {
+                        let (index, output) = result?;
+                        outputs[index] = Some(output);
+                    }
+                }
+                _ = cancellation.cancelled() => {}
             }
         } else {
             for call in prepared {
-                let (index, output) = self.execute_one(session.clone(), call).await?;
-                outputs[index] = Some(output);
+                let index = call.index;
+                tokio::select! {
+                    result = self.execute_one(session.clone(), call) => {
+                        let (index, output) = result?;
+                        outputs[index] = Some(output);
+                    }
+                    _ = cancellation.cancelled() => {
+                        outputs[index] = Some(ToolOutput::failure("cancelled", "stopped by user"));
+                        break;
+                    }
+                }
             }
         }
 
         Ok(outputs
             .into_iter()
             .map(|output| {
-                output
-                    .unwrap_or_else(|| ToolOutput::failure("runtime_error", "missing tool result"))
+                output.unwrap_or_else(|| {
+                    if cancellation.is_cancelled() {
+                        ToolOutput::failure("cancelled", "stopped by user")
+                    } else {
+                        ToolOutput::failure("runtime_error", "missing tool result")
+                    }
+                })
             })
             .collect())
     }

@@ -12,6 +12,7 @@ use mini_coding_agent::{
     tools::PreparedCall,
 };
 use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
 
 struct ScriptedLlm {
     responses: Mutex<VecDeque<ChatResponse>>,
@@ -101,6 +102,116 @@ async fn direct_answer_skips_tools() {
     assert_eq!(reply.content, "hello");
     assert_eq!(reply.tool_calls, 0);
     assert_eq!(llm.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn cancellation_stops_an_inflight_model_call_and_closes_the_turn() {
+    struct SlowLlm;
+    #[async_trait]
+    impl LlmClient for SlowLlm {
+        async fn complete(&self, _: &ChatRequest) -> mini_coding_agent::Result<ChatResponse> {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            unreachable!()
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
+    let key = SessionKey::new("u", "cancel");
+    let agent = Agent::new(
+        Arc::new(SlowLlm),
+        memory.clone(),
+        ToolRegistry::standard(),
+        Arc::new(FixedApprover(true)),
+        PermissionMode::FullAccess,
+        temp.path().into(),
+        AgentConfig::default(),
+    );
+    let cancellation = CancellationToken::new();
+    let trigger = cancellation.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        trigger.cancel();
+    });
+
+    let error = agent
+        .run_cancellable(key.clone(), "long task", cancellation)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, AgentError::Cancelled));
+    let messages = memory.load_active_messages(&key).unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(
+        messages[1].message.content.as_deref(),
+        Some("Request stopped by the user.")
+    );
+}
+
+#[tokio::test]
+async fn cancellation_stops_a_shell_call_and_records_all_tool_outputs() {
+    #[cfg(windows)]
+    let command = "Start-Sleep -Seconds 30";
+    #[cfg(not(windows))]
+    let command = "sleep 30";
+    let call = ChatMessage {
+        role: "assistant".into(),
+        content: None,
+        reasoning_content: Some("run".into()),
+        tool_calls: Some(vec![ToolCall {
+            id: "slow-shell".into(),
+            kind: "function".into(),
+            function: FunctionCall {
+                name: "shell".into(),
+                arguments: serde_json::json!({"command": command}).to_string(),
+            },
+        }]),
+        tool_call_id: None,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
+    let key = SessionKey::new("u", "cancel-shell");
+    let llm = Arc::new(ScriptedLlm::new(vec![call]));
+    let agent = Agent::new(
+        llm,
+        memory.clone(),
+        ToolRegistry::standard(),
+        Arc::new(FixedApprover(true)),
+        PermissionMode::FullAccess,
+        temp.path().into(),
+        AgentConfig::default(),
+    );
+    let cancellation = CancellationToken::new();
+    let trigger = cancellation.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        trigger.cancel();
+    });
+
+    let error = agent
+        .run_cancellable(key.clone(), "run slowly", cancellation)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, AgentError::Cancelled));
+    let messages = memory.load_active_messages(&key).unwrap();
+    assert_eq!(messages.len(), 4);
+    assert_eq!(
+        messages[2].message.tool_call_id.as_deref(),
+        Some("slow-shell")
+    );
+    assert!(
+        messages[2]
+            .message
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("cancelled")
+    );
+    assert_eq!(
+        messages[3].message.content.as_deref(),
+        Some("Request stopped by the user.")
+    );
 }
 
 #[tokio::test]

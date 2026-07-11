@@ -26,6 +26,8 @@ pub enum AgentError {
     NoProgress,
     #[error("run exceeded {0} seconds")]
     Deadline(u64),
+    #[error("request stopped by user")]
+    Cancelled,
     #[error("context compaction failed: {0}")]
     Compaction(String),
 }

@@ -175,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut repl = Repl::new(
                 agent,
                 memory,
-                ConsoleTerminal,
+                ConsoleTerminal::new()?,
                 config.user_id,
                 cli.session,
                 workspace,

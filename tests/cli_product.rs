@@ -135,7 +135,48 @@ fn slash_parser_is_deterministic() {
         ReplCommand::Permission(Some(PermissionMode::FullAccess))
     );
     assert_eq!(parse_command("/trace on"), ReplCommand::Trace(true));
+    assert_eq!(parse_command("/paste"), ReplCommand::Paste);
     assert!(matches!(parse_command("/bad"), ReplCommand::Unknown(_)));
+}
+
+#[tokio::test]
+async fn paste_mode_submits_one_multiline_request() {
+    let temp = tempfile::tempdir().unwrap();
+    let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
+    let llm = Arc::new(ScriptedLlm::new(vec![assistant("done")]));
+    let renderer = Arc::new(ConsoleRenderer::new(false));
+    let agent = Agent::new(
+        llm.clone(),
+        memory.clone(),
+        ToolRegistry::standard(),
+        Arc::new(Deny),
+        PermissionMode::RequireApproval,
+        temp.path().into(),
+        AgentConfig::default(),
+    );
+    let terminal = FakeTerminal::new(&["/paste", "first line", "second line", ".", "/exit"]);
+    let mut repl = Repl::new(
+        agent,
+        memory,
+        terminal,
+        "u".into(),
+        None,
+        temp.path().into(),
+        temp.path().join("config.json"),
+        renderer,
+    )
+    .unwrap();
+
+    repl.run().await.unwrap();
+
+    let requests = llm.requests();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]
+            .messages
+            .iter()
+            .any(|message| message.content.as_deref() == Some("first line\nsecond line"))
+    );
 }
 
 #[test]

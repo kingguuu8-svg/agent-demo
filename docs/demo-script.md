@@ -1,5 +1,7 @@
 # Terminal Recording Script
 
+Long prompts can be pasted directly. If the recording terminal splits pasted lines, use `/paste`, paste the task, then enter `.` on its own line. Press `Esc` during execution to demonstrate cancellation without losing the session.
+
 1. Install and verify:
 
    ```powershell

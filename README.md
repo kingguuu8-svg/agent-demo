@@ -52,12 +52,15 @@ Inside the REPL:
 /resume [session-id]         list or resume saved sessions
 /sessions                    list recent sessions
 /permission [mode]           show or change execution permission
+/paste                       enter a multi-line request; finish with `.`
 /trace on|off                toggle detailed tool output
 /status                      show active session state
 /config                      show the configuration location
 /help                        show commands
 /exit                        quit
 ```
+
+Normal terminal paste is kept as one request. `/paste` is a compatibility fallback for terminals without bracketed-paste support. While the agent is working, press `Esc` to stop the current request without losing the session. `Ctrl-C` clears the current input line, and Up/Down recall input history for the current process.
 
 The first user message becomes a short session title. Empty sessions are discarded. `/resume` restores conversation history, tool observations, summary memory, and session-scoped todos.
 

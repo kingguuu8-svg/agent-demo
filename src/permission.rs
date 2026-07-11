@@ -1,6 +1,7 @@
 use std::{
     io::{self, Write},
     str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use async_trait::async_trait;
@@ -42,6 +43,12 @@ pub trait Approver: Send + Sync {
 
 pub struct StdinApprover;
 
+static APPROVAL_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn approval_active() -> bool {
+    APPROVAL_ACTIVE.load(Ordering::Acquire)
+}
+
 #[async_trait]
 impl Approver for StdinApprover {
     async fn approve(&self, calls: &[PreparedCall]) -> bool {
@@ -50,6 +57,7 @@ impl Approver for StdinApprover {
         }
         let calls = calls.to_vec();
         tokio::task::spawn_blocking(move || {
+            APPROVAL_ACTIVE.store(true, Ordering::Release);
             eprintln!("\nAgent requests {} tool call(s):", calls.len());
             for (index, call) in calls.iter().enumerate() {
                 eprintln!(
@@ -62,7 +70,10 @@ impl Approver for StdinApprover {
             eprint!("\nExecute? [y/N]: ");
             let _ = io::stderr().flush();
             let mut input = String::new();
-            io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y")
+            let approved =
+                io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y");
+            APPROVAL_ACTIVE.store(false, Ordering::Release);
+            approved
         })
         .await
         .unwrap_or(false)

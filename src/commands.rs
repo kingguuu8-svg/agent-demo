@@ -9,6 +9,7 @@ pub enum ReplCommand {
     Resume(Option<String>),
     Sessions,
     Permission(Option<PermissionMode>),
+    Paste,
     Config,
     Trace(bool),
     Status,
@@ -38,6 +39,7 @@ pub fn parse_command(input: &str) -> ReplCommand {
                 .map(|mode| ReplCommand::Permission(Some(mode)))
                 .unwrap_or_else(|_| ReplCommand::Unknown(trimmed.into())),
         },
+        "/paste" if argument.is_none() => ReplCommand::Paste,
         "/config" => ReplCommand::Config,
         "/trace" => match argument {
             Some("on") => ReplCommand::Trace(true),

@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     path::PathBuf,
     sync::{
         Arc,
@@ -7,6 +7,10 @@ use std::{
     },
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use crossterm::{event, terminal};
+use rustyline::{DefaultEditor, error::ReadlineError};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     Agent, Memory, SessionKey,
@@ -21,17 +25,41 @@ static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub trait Terminal {
     fn read_line(&mut self) -> Result<Option<String>>;
     fn write(&mut self, text: &str) -> Result<()>;
+    fn supports_escape_interrupt(&self) -> bool {
+        false
+    }
 }
 
-pub struct ConsoleTerminal;
+pub struct ConsoleTerminal {
+    editor: DefaultEditor,
+    interactive: bool,
+}
+
+impl ConsoleTerminal {
+    pub fn new() -> Result<Self> {
+        let editor = DefaultEditor::new()
+            .map_err(|error| AgentError::Config(format!("terminal unavailable: {error}")))?;
+        Ok(Self {
+            editor,
+            interactive: io::stdin().is_terminal() && io::stdout().is_terminal(),
+        })
+    }
+}
 
 impl Terminal for ConsoleTerminal {
     fn read_line(&mut self) -> Result<Option<String>> {
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input)? == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(input.trim_end_matches(['\r', '\n']).to_string()))
+        match self.editor.readline("") {
+            Ok(input) => {
+                if !input.trim().is_empty() {
+                    let _ = self.editor.add_history_entry(&input);
+                }
+                Ok(Some(input))
+            }
+            Err(ReadlineError::Interrupted) => Ok(Some(String::new())),
+            Err(ReadlineError::Eof) => Ok(None),
+            Err(error) => Err(AgentError::Config(format!(
+                "terminal input failed: {error}"
+            ))),
         }
     }
 
@@ -39,6 +67,10 @@ impl Terminal for ConsoleTerminal {
         print!("{text}");
         io::stdout().flush()?;
         Ok(())
+    }
+
+    fn supports_escape_interrupt(&self) -> bool {
+        self.interactive
     }
 }
 
@@ -107,6 +139,11 @@ impl<T: Terminal> Repl<T> {
                 ReplCommand::Resume(session) => self.resume(session)?,
                 ReplCommand::Sessions => self.show_sessions()?,
                 ReplCommand::Permission(permission) => self.permission(permission)?,
+                ReplCommand::Paste => {
+                    if let Some(message) = self.read_paste()? {
+                        self.handle_message(message).await?;
+                    }
+                }
                 ReplCommand::Config => self.terminal.write(&format!(
                     "Configuration: {}\nRun `agent-demo config` to edit it.\n",
                     self.config_path.display()
@@ -144,11 +181,68 @@ impl<T: Terminal> Repl<T> {
     async fn handle_message(&mut self, message: String) -> Result<()> {
         self.memory
             .set_title_if_empty(&self.session, &session_title(&message))?;
-        match self.agent.run(self.session.clone(), message).await {
-            Ok(reply) => self
-                .terminal
-                .write(&format!("\nAgent:\n{}\n", reply.content)),
+        self.terminal
+            .write("Working... press Esc to stop the current request.\n")?;
+        let started = std::time::Instant::now();
+        let cancellation = CancellationToken::new();
+        let result = if self.terminal.supports_escape_interrupt() {
+            let watcher_stop = CancellationToken::new();
+            let run =
+                self.agent
+                    .run_cancellable(self.session.clone(), message, cancellation.clone());
+            tokio::pin!(run);
+            let watcher = wait_for_escape(cancellation.clone(), watcher_stop.clone());
+            tokio::pin!(watcher);
+            tokio::select! {
+                result = &mut run => {
+                    watcher_stop.cancel();
+                    watcher.await;
+                    result
+                }
+                _ = &mut watcher => run.await,
+            }
+        } else {
+            self.agent.run(self.session.clone(), message).await
+        };
+        match result {
+            Ok(reply) => self.terminal.write(&format!(
+                "\nAgent:\n{}\n\nCompleted in {:.1}s · {} LLM call(s) · {} tool call(s).\n",
+                reply.content,
+                started.elapsed().as_secs_f64(),
+                reply.llm_calls,
+                reply.tool_calls
+            )),
+            Err(AgentError::Cancelled) => self.terminal.write(
+                "\nStopped. The session is still available and ready for another request.\n",
+            ),
             Err(error) => self.terminal.write(&format!("\nAgent error: {error}\n")),
+        }
+    }
+
+    fn read_paste(&mut self) -> Result<Option<String>> {
+        self.terminal.write(
+            "Paste text below. Enter a single `.` line to submit, or `/cancel` to abort.\n",
+        )?;
+        let mut lines = Vec::new();
+        loop {
+            let Some(line) = self.terminal.read_line()? else {
+                return Ok(None);
+            };
+            if line == "." {
+                break;
+            }
+            if line == "/cancel" {
+                self.terminal.write("Paste cancelled.\n")?;
+                return Ok(None);
+            }
+            lines.push(line);
+        }
+        let message = lines.join("\n");
+        if message.trim().is_empty() {
+            self.terminal.write("Nothing to submit.\n")?;
+            Ok(None)
+        } else {
+            Ok(Some(message))
         }
     }
 
@@ -267,6 +361,7 @@ impl<T: Terminal> Repl<T> {
              /resume [session-id]          list or resume sessions\n\
              /sessions                     list recent sessions\n\
              /permission [mode]            show or change execution permission\n\
+             /paste                        enter a multi-line request\n\
              /trace on|off                 toggle detailed tool output\n\
              /status                       show active state\n\
              /config                       show configuration location\n\
@@ -274,6 +369,35 @@ impl<T: Terminal> Repl<T> {
              /exit                         quit\n",
         )
     }
+}
+
+async fn wait_for_escape(cancellation: CancellationToken, stop: CancellationToken) {
+    let _ = tokio::task::spawn_blocking(move || {
+        let mut raw = false;
+        while !stop.is_cancelled() && !cancellation.is_cancelled() {
+            if crate::permission::approval_active() {
+                if raw {
+                    let _ = terminal::disable_raw_mode();
+                    raw = false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                continue;
+            }
+            if !raw {
+                raw = terminal::enable_raw_mode().is_ok();
+            }
+            if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false)
+                && matches!(event::read(), Ok(event::Event::Key(key)) if key.code == event::KeyCode::Esc)
+            {
+                cancellation.cancel();
+                break;
+            }
+        }
+        if raw {
+            let _ = terminal::disable_raw_mode();
+        }
+    })
+    .await;
 }
 
 pub fn new_session_id() -> String {
