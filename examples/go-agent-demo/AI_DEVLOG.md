@@ -1,12 +1,20 @@
 # Go Agent AI 开发记录
 
+## 生成 Prompt
+
+```text
+在当前目录创建 go-agent-demo。使用 Go 从零实现一个最小可用 Coding Agent Runtime，不使用现有 Agent 框架，直接调用 DeepSeek OpenAI-compatible Chat API。
+
+实现用户输入、LLM 决策、工具执行、观察回传和最终回答的基本 Loop；通过 Schema 注册 shell、read_file、edit_file 等工具；加入最大 Loop、基础错误处理、trace、memory、测试和 README。优先使用标准库，API Key 只从 DEEPSEEK_API_KEY 读取。实际运行 gofmt、go vet 和 go test，不要只给方案，必须创建、构建并验证完整项目。
+```
+
 ## 一条 Prompt 生成
 
-Rust `agent-demo` 在新目录中收到 `PROMPTS.md` 记录的任务。它检查 Go 环境，选择以标准库为主的目录结构，创建 API Client、Agent Loop、工具注册表、八个工具、容量受限 memory 和交互式 CLI，并完成构建。面试录屏保留了这个过程。
+Rust `agent-demo` 在新目录中收到上述任务。它检查 Go 环境，选择以标准库为主的目录结构，创建 API Client、Agent Loop、工具注册表、八个工具、容量受限 memory 和交互式 CLI，并完成构建。操作录屏保留了这个过程。
 
 ## 提交整理
 
-Go Runtime 的价值是证明“主 Agent 能根据一条任务自主创建另一个 Agent”，因此没有把它继续重写成第二套生产实现。提交准备只做了必要的安全和证据整理：
+Go Runtime 的价值是证明“主 Agent 能根据一条任务自主创建另一个 Agent”，因此没有把它继续重写成第二套生产实现。后续只做了必要的安全和验证整理：
 
 - 排除开发时的明文 Key 和 Windows exe；
 - 将 `DEEPSEEK_API_KEY` 作为唯一 Key 来源；

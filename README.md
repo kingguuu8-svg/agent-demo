@@ -2,9 +2,11 @@
 
 一个使用 Rust 从零实现、具备真实执行能力的 Coding Agent Runtime。项目直接调用 DeepSeek Chat Completions API，不依赖 LangGraph、OpenHands、OpenClaw 或其他 Agent 框架。
 
-## 提交材料与自举证明
+代码仓库：[github.com/kingguuu8-svg/agent-demo](https://github.com/kingguuu8-svg/agent-demo)
 
-[提交清单](SUBMISSION.md)将面试要求逐项映射到代码和文档。为了证明 Runtime 具备多文件开发、工具调用、执行验证和纠错闭环能力，本 Agent 又根据一条自然语言任务创建了一个 [Go Agent Demo](examples/go-agent-demo/README.md)。Go 版附带生成 Prompt、问题记录、离线测试和真实 DeepSeek 回归，但刻意保持较小规模；根目录 Rust 项目才是完整满足考题要求的主实现。
+## Go 自举示例
+
+为了验证 Runtime 的多文件开发、工具调用、执行验证和纠错闭环能力，本 Agent 根据一条自然语言任务创建了一个 [Go Agent Demo](examples/go-agent-demo/README.md)。Go 版包含独立 Runtime、八个工具、离线测试和真实 DeepSeek 回归，并刻意保持较小规模；根目录 Rust 项目是功能完整的主实现。
 
 ## 安装与启动
 
@@ -120,4 +122,4 @@ cargo test --test keyring -- --ignored --nocapture
 
 本项目明确不实现操作系统沙箱。`shell`、绝对路径读取和编辑都使用当前进程权限。批准机制提供人工介入，但不等于隔离；只应在可信或可丢弃环境中使用 `full-access`。Shell 子进程不会继承 `DEEPSEEK_API_KEY`，但仍可访问当前用户本来就有权限访问的其他主机资源。
 
-更多资料见 `docs/DESIGN.md`、`docs/PROMPTS.md`、`docs/AI_DEVLOG.md` 和 `docs/demo-script.md`。
+更多资料见 `docs/DESIGN.md`、`docs/AI_DEVLOG.md` 和 `docs/demo-script.md`。

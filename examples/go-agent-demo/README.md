@@ -38,5 +38,4 @@ go test -run TestLiveDeepSeekAgentLoop -v
 
 - `agent_test.go`：确定性 Agent Loop、calculator、容量限制和配置测试
 - `live_test.go`：可选的真实 DeepSeek 工具执行 Loop 回归
-- `PROMPTS.md`：生成任务 Prompt
 - `AI_DEVLOG.md`：生成过程与问题记录
