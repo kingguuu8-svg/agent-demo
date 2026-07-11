@@ -1,21 +1,21 @@
-# Interview Submission
+# 面试提交清单
 
-## Code
+## 代码
 
-- Repository: [github.com/kingguuu8-svg/agent-demo](https://github.com/kingguuu8-svg/agent-demo)
-- Primary implementation: Rust runtime under `src/`
-- Self-hosting proof: Go runtime under `examples/go-agent-demo/`
+- 仓库：[github.com/kingguuu8-svg/agent-demo](https://github.com/kingguuu8-svg/agent-demo)
+- 主实现：`src/` 下的 Rust Runtime
+- 自举证明：`examples/go-agent-demo/` 下的 Go Runtime
 
-Neither implementation uses an Agent framework. Both call the DeepSeek OpenAI-compatible API directly. API keys are supplied at runtime and are not committed.
+两个实现均未使用 Agent 框架，均直接调用 DeepSeek OpenAI-compatible API。API Key 仅在运行时提供，不会提交到仓库。
 
-## Run and Verify
+## 运行与验证
 
 ```text
 agent-demo
 cargo test
 ```
 
-The Windows release package contains `agent-demo.exe` and `install.cmd`. For the generated proof project:
+Windows 发布包包含 `agent-demo.exe` 与 `install.cmd`。Go 证明项目的验证方式：
 
 ```text
 cd examples/go-agent-demo
@@ -25,24 +25,24 @@ go test -run TestLiveDeepSeekAgentLoop -v
 go run .
 ```
 
-## Recording
+## 操作录屏
 
-The terminal operation recording is supplied separately with the interview submission. It shows the Rust Agent receiving the Go project prompt, inspecting the workspace, creating multiple files, invoking tools, building/testing, correcting problems, and completing the generated Agent.
+录屏文件随面试交付包提交。视频展示 Rust Agent 接收 Go 项目任务、检查工作区、创建多个文件、调用工具、构建测试、处理问题并完成另一个 Agent。
 
-## Design and Memory Evidence
+## 设计与 Memory 证据
 
-- Root [README](README.md): installation, commands, tools, sessions, and context policy.
-- [System design](docs/DESIGN.md): loop state machine, persistence, scheduling, permissions, context compression, and tracing.
-- [Go README](examples/go-agent-demo/README.md): generated runtime and exact memory placement and limits.
+- 根目录 [README](README.md)：安装、命令、工具、session 和 context 策略
+- [系统设计](docs/DESIGN.md)：Loop、持久化、调度、权限、context 压缩和 trace
+- [Go README](examples/go-agent-demo/README.md)：生成版 Runtime 的 memory 放置方式与能力边界
 
-The Rust runtime recalls the session's SQLite summary and uncompacted messages before every LLM call. Tool observations are appended immediately after their corresponding assistant tool calls. Compression runs only near the configured context threshold and preserves recent complete turns. The Go proof keeps active-loop messages and tool observations in request order but deliberately does not duplicate durable cross-goal recall; that limitation is recorded in its README.
+Rust Runtime 在每次 LLM 调用前召回 SQLite 中的 session 摘要和未压缩消息；工具观察紧跟对应工具调用写入。只有接近 context 阈值时才压缩，并保留最近的完整轮次。Go 证明在单次活跃 Loop 中保持消息与工具观察顺序，但不重复实现跨任务持久召回，相关限制已在其 README 中明确说明。
 
-## AI Prompts and Problem-Solving Record
+## AI Prompt 与问题解决记录
 
-- Root [prompts](docs/PROMPTS.md) and [development log](docs/AI_DEVLOG.md)
-- Go [generation prompt](examples/go-agent-demo/PROMPTS.md)
-- Go [review and resolution log](examples/go-agent-demo/AI_DEVLOG.md)
+- 主项目 [Prompt](docs/PROMPTS.md) 与 [开发记录](docs/AI_DEVLOG.md)
+- Go [生成 Prompt](examples/go-agent-demo/PROMPTS.md)
+- Go [生成与整理记录](examples/go-agent-demo/AI_DEVLOG.md)
 
-## Test Evidence
+## 测试证据
 
-Normal suites are deterministic and offline. Explicit ignored/gated tests exercise the real DeepSeek API and operating-system credential manager. The final submission was also manually regressed against DeepSeek using both the Rust runtime and the Go tool-decision test.
+常规测试均为确定性离线测试。显式 ignored/gated 测试会调用真实 DeepSeek API 和操作系统凭据管理器。最终版本已分别使用 Rust 与 Go 对真实 DeepSeek 完成回归。

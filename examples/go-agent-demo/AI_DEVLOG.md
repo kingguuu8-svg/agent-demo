@@ -1,19 +1,23 @@
-# AI Development Record
+# Go Agent AI 开发记录
 
-## One-Prompt Generation
+## 一条 Prompt 生成
 
-The Rust `agent-demo` received the task recorded in `PROMPTS.md` in a fresh directory. It inspected the Go environment, chose a standard-library-first layout, created the API client, loop, registry, eight tools, bounded memory, and interactive CLI, then built the program. The interview terminal recording captures this process.
+Rust `agent-demo` 在新目录中收到 `PROMPTS.md` 记录的任务。它检查 Go 环境，选择以标准库为主的目录结构，创建 API Client、Agent Loop、工具注册表、八个工具、容量受限 memory 和交互式 CLI，并完成构建。面试录屏保留了这个过程。
 
-## Submission Preparation
+## 提交整理
 
-The generated runtime is intentionally preserved rather than rewritten into a second production implementation. Submission preparation made only security and evidence changes:
+Go Runtime 的价值是证明“主 Agent 能根据一条任务自主创建另一个 Agent”，因此没有把它继续重写成第二套生产实现。提交准备只做了必要的安全和证据整理：
 
-- excluded the plaintext development key and generated Windows executables;
-- made `DEEPSEEK_API_KEY` the only key source;
-- added deterministic tests around the generated calculator, bounded log, and two-call Agent loop;
-- added an opt-in real DeepSeek end-to-end tool-loop test;
-- documented the generated version's narrower memory semantics honestly.
+- 排除开发时的明文 Key 和 Windows exe；
+- 将 `DEEPSEEK_API_KEY` 作为唯一 Key 来源；
+- 为生成的 calculator、容量受限日志和两次 LLM 调用 Loop 增加最小确定性测试；
+- 增加真实 DeepSeek 端到端工具 Loop 测试；
+- 在 README 中如实记录生成版本较小的 memory 语义。
 
-## Known Limits
+## 验证结果
 
-This proof version has process-local memory, resets message history between goals, executes tool calls sequentially, and has no approval UI, session persistence, context compression, or cancellation. Those features are implemented in the root Rust runtime. The Go artifact is evidence that the Rust Agent can autonomously create, build, and exercise a coherent multi-file Agent—not a claim that both runtimes have identical scope.
+离线测试使用 `httptest` 模拟两次模型响应：第一次返回 calculator 工具调用，Runtime 执行后写回观察，第二次返回最终答案。真实测试使用 DeepSeek 完成同样闭环，模型自主调用 calculator 计算 `123 * 456`，最终返回 `56088`。
+
+## 已知限制
+
+这个证明版本使用进程内 memory，新目标会重置消息历史；工具调用串行执行；没有批准界面、session 持久化、context 压缩或取消机制。这些能力由根目录 Rust Runtime 实现。Go 项目证明的是 Rust Agent 能自主创建、构建和验证一个结构完整的多文件 Agent，而不是声称两个 Runtime 功能完全相同。
