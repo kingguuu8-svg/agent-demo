@@ -51,6 +51,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Remove the one-click installation and its PATH entry.
+    Uninstall,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -74,6 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing(cli.json_logs);
     let store = ConfigStore::discover()?;
     let credentials = KeyringCredentialStore;
+
+    if matches!(cli.command, Some(Command::Uninstall)) {
+        uninstall()?;
+        return Ok(());
+    }
 
     if cli.config || matches!(cli.command, Some(Command::Config)) {
         configure(&store, &credentials)?;
@@ -152,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(Command::Config) => unreachable!("handled before runtime initialization"),
+        Some(Command::Uninstall) => unreachable!("handled before runtime initialization"),
         None => {
             let renderer = Arc::new(ConsoleRenderer::new(false));
             let agent = Agent::new(
@@ -178,6 +186,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn uninstall() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::{Command as ProcessCommand, Stdio};
+
+    let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?;
+    let install_dir = PathBuf::from(local).join("AgentDemo").join("bin");
+    let path_script = format!(
+        "$d='{}'; $p=[Environment]::GetEnvironmentVariable('Path','User'); \
+         $n=@($p -split ';' | Where-Object {{ $_ -and $_ -ne $d }}) -join ';'; \
+         [Environment]::SetEnvironmentVariable('Path',$n,'User')",
+        install_dir.display().to_string().replace('\'', "''")
+    );
+    let status = ProcessCommand::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-Command", &path_script])
+        .status()?;
+    if !status.success() {
+        return Err("could not remove Agent Demo from the user PATH".into());
+    }
+
+    let install_root = install_dir.parent().unwrap_or(&install_dir);
+    let cleanup = format!(
+        "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '{}' -Recurse -Force",
+        install_root.display().to_string().replace('\'', "''")
+    );
+    ProcessCommand::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &cleanup,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    println!("Agent Demo was removed from PATH. Open a new terminal to apply the change.");
+    println!("Sessions and configuration were preserved.");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn uninstall() -> Result<(), Box<dyn std::error::Error>> {
+    Err("`agent-demo uninstall` is currently available on Windows only".into())
 }
 
 fn configure(

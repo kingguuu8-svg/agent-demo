@@ -2,21 +2,25 @@
 
 An execution-capable coding agent runtime written from scratch in Rust. It calls the real DeepSeek Chat Completions API directly and does not use LangGraph, OpenHands, OpenClaw, or another agent framework.
 
-## Install
+## Install and Start
 
-Install Rust stable, clone the repository, then install the command:
+On Windows, place `install.cmd` beside `agent-demo.exe`, then double-click `install.cmd` or run it from any terminal. It installs the command for the current user and opens first-time setup. Open a new terminal and start with:
 
-```powershell
-git clone https://github.com/kingguuu8-svg/agent-demo.git
-cd agent-demo
-cargo install --path .
+```text
+agent-demo
 ```
 
-The installed program is `agent-demo`. During development, replace `agent-demo` with `cargo run --bin agent-demo --`.
+No Rust installation or GitHub connection is required by the release package. To remove the executable and PATH entry while preserving sessions and configuration:
+
+```text
+agent-demo uninstall
+```
+
+Developers building from source can use `cargo install --path .`. During development, replace `agent-demo` with `cargo run --bin agent-demo --`.
 
 ## Configure
 
-Run the interactive setup once:
+If no API key exists, normal startup opens setup automatically. It can also be opened explicitly:
 
 ```powershell
 agent-demo config

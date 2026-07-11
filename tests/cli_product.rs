@@ -333,6 +333,44 @@ async fn resume_replays_previous_session_history() {
 }
 
 #[tokio::test]
+async fn resume_without_id_accepts_a_list_number() {
+    let temp = tempfile::tempdir().unwrap();
+    let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
+    let saved = SessionKey::new("u", "saved-session");
+    memory
+        .append_message(&saved, &ChatMessage::user("saved question"))
+        .unwrap();
+    memory.set_title_if_empty(&saved, "Saved work").unwrap();
+    let renderer = Arc::new(ConsoleRenderer::new(false));
+    let agent = Agent::new(
+        Arc::new(ScriptedLlm::new(vec![])),
+        memory.clone(),
+        ToolRegistry::standard(),
+        Arc::new(Deny),
+        PermissionMode::RequireApproval,
+        temp.path().into(),
+        AgentConfig::default(),
+    );
+    let terminal = FakeTerminal::new(&["/resume", "1", "/exit"]);
+    let mut repl = Repl::new(
+        agent,
+        memory,
+        terminal,
+        "u".into(),
+        None,
+        temp.path().into(),
+        temp.path().join("config.json"),
+        renderer,
+    )
+    .unwrap();
+
+    repl.run().await.unwrap();
+
+    assert_eq!(repl.active_session().session_id, "saved-session");
+    assert!(repl.terminal().output.contains("1. saved-session"));
+}
+
+#[tokio::test]
 async fn permission_command_changes_the_next_execution() {
     let temp = tempfile::tempdir().unwrap();
     let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
