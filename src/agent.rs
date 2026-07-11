@@ -15,6 +15,7 @@ use crate::{
     memory::Memory,
     model::{ChatMessage, ChatRequest, ChatResponse, SessionKey, ThinkingConfig, ToolOutput},
     permission::{Approver, PermissionMode},
+    renderer::{AgentObserver, NoopObserver},
     tools::{PreparedCall, ToolContext, ToolEffect, ToolRegistry},
 };
 
@@ -78,6 +79,7 @@ pub struct Agent {
     permission: PermissionMode,
     workspace: PathBuf,
     config: AgentConfig,
+    observer: Arc<dyn AgentObserver>,
 }
 
 impl Agent {
@@ -98,7 +100,21 @@ impl Agent {
             permission,
             workspace,
             config,
+            observer: Arc::new(NoopObserver),
         }
+    }
+
+    pub fn with_observer(mut self, observer: Arc<dyn AgentObserver>) -> Self {
+        self.observer = observer;
+        self
+    }
+
+    pub fn set_permission(&mut self, permission: PermissionMode) {
+        self.permission = permission;
+    }
+
+    pub fn permission(&self) -> PermissionMode {
+        self.permission
     }
 
     pub async fn run(&self, session: SessionKey, input: impl Into<String>) -> Result<AgentReply> {
@@ -136,9 +152,11 @@ impl Agent {
                 self.tools.definitions(),
                 self.config.max_output_tokens,
             );
+            self.observer.llm_started(llm_calls + 1);
             let started = Instant::now();
             let response = self.llm.complete(&request).await?;
             llm_calls += 1;
+            self.observer.llm_finished(llm_calls, started.elapsed());
             trace_llm(llm_calls, started.elapsed(), &response);
             let assistant = response
                 .choices
@@ -270,6 +288,9 @@ impl Agent {
         call: PreparedCall,
     ) -> Result<(usize, ToolOutput)> {
         if let Some(output) = self.memory.cached_tool_output(&session, &call.id)? {
+            self.observer.tool_started(&call);
+            self.observer
+                .tool_finished(&call, &output, Duration::ZERO, true);
             return Ok((call.index, output));
         }
         let context = ToolContext {
@@ -281,9 +302,11 @@ impl Agent {
             .tools
             .get(&call.name)
             .ok_or_else(|| AgentError::Config(format!("tool disappeared: {}", call.name)))?;
+        self.observer.tool_started(&call);
         let started = Instant::now();
         let output = tool.execute(&context, call.arguments.clone()).await;
         let duration = started.elapsed();
+        self.observer.tool_finished(&call, &output, duration, false);
         self.memory.record_tool_run(
             &session,
             &call.id,
@@ -348,6 +371,7 @@ impl Agent {
         let through = old.last().map(|item| item.seq).unwrap_or_default();
         self.memory
             .save_compaction(session, &new_summary, through)?;
+        self.observer.context_compacted();
         info!(through, "context compacted");
         Ok(())
     }

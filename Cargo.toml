@@ -5,12 +5,19 @@ edition = "2024"
 description = "A minimal coding agent runtime built from scratch with DeepSeek"
 license = "MIT"
 
+[[bin]]
+name = "agent-demo"
+path = "src/main.rs"
+
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4", features = ["derive"] }
+directories = "6"
 futures = "0.3"
 fasteval = "0.2"
+keyring = "4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rpassword = "7"
 rusqlite = { version = "0.32", features = ["bundled"] }
 schemars = "0.8"
 serde = { version = "1", features = ["derive"] }

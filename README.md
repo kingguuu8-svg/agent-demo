@@ -1,41 +1,101 @@
-# Mini Coding Agent
+# Agent Demo
 
-A small, execution-capable coding agent runtime written from scratch in Rust. It calls the real DeepSeek Chat Completions API directly and does not use LangGraph, OpenHands, OpenClaw, or another agent framework.
+An execution-capable coding agent runtime written from scratch in Rust. It calls the real DeepSeek Chat Completions API directly and does not use LangGraph, OpenHands, OpenClaw, or another agent framework.
 
-## Features
+## Install
 
-- Native DeepSeek tool calling with `content`, `reasoning_content`, and `tool_calls` parsing
-- Six schema-registered tools: `shell`, `read_file`, `edit_file`, `calculator`, mock `search`, and session-scoped `todo`
-- Parallel execution for all-read-only batches; deterministic serial execution when a batch mutates state
-- `full-access` and per-batch `require-approval` permission modes
-- Persistent, isolated `(user_id, session_id)` conversations and todos in SQLite
-- Idempotent tool side effects by `tool_call_id`
-- Long runs with loop, tool, time, and repeated-no-progress guards
-- Late context compaction near DeepSeek V4's context limit
-- Structured tracing and deterministic Fake-LLM tests
-
-## Prerequisites
-
-- Rust stable toolchain
-- A newly issued DeepSeek API key
-
-The API key previously pasted into a conversation must be revoked. Never reuse or commit it.
-
-## Run
+Install Rust stable, clone the repository, then install the command:
 
 ```powershell
-$env:DEEPSEEK_API_KEY="your-new-key"
-$env:DEEPSEEK_MODEL="deepseek-v4-flash"
-cargo run -- chat --user user-a --session window-1 --permission require-approval
+git clone https://github.com/kingguuu8-svg/agent-demo.git
+cd agent-demo
+cargo install --path .
 ```
 
-For a trusted disposable environment:
+The installed program is `agent-demo`. During development, replace `agent-demo` with `cargo run --bin agent-demo --`.
+
+## Configure
+
+Run the interactive setup once:
 
 ```powershell
-cargo run -- chat --user user-a --session window-1 --permission full-access
+agent-demo config
 ```
 
-Open a second terminal with `--session window-2` to demonstrate isolation. The default database is `.mini-agent.db`; select another with `--database path.db`.
+`agent-demo --config` is an alias. The wizard configures the model, API base URL, local user, workspace, and default permission. The DeepSeek API key is stored in the operating-system credential manager, never in `config.json`.
+
+`DEEPSEEK_API_KEY` takes priority over the credential manager, which is useful on CI or a headless Linux host:
+
+```powershell
+$env:DEEPSEEK_API_KEY="your-key"
+agent-demo
+```
+
+Optional environment overrides are `DEEPSEEK_MODEL` and `DEEPSEEK_BASE_URL`.
+
+## Start and Resume Sessions
+
+Start with no arguments. A new persistent session is created automatically:
+
+```powershell
+agent-demo
+```
+
+Inside the REPL:
+
+```text
+/new                         create a new session
+/resume [session-id]         list or resume saved sessions
+/sessions                    list recent sessions
+/permission [mode]           show or change execution permission
+/trace on|off                toggle detailed tool output
+/status                      show active session state
+/config                      show the configuration location
+/help                        show commands
+/exit                        quit
+```
+
+The first user message becomes a short session title. Empty sessions are discarded. `/resume` restores conversation history, tool observations, summary memory, and session-scoped todos.
+
+Permissions can change without restarting:
+
+```text
+/permission require-approval
+/permission full-access
+```
+
+`require-approval` shows a validated tool batch and asks before execution. `full-access` executes immediately.
+
+## One-Shot Mode
+
+For scripts or CI:
+
+```powershell
+agent-demo run "Use the calculator tool to compute 23*19"
+agent-demo run --session s-123 --permission full-access "Continue the task"
+agent-demo run --json --permission full-access "Run the tests"
+```
+
+JSON mode writes only the result envelope to stdout; runtime logs remain on stderr.
+
+## Tools and Runtime
+
+Six schema-registered tools are available:
+
+- `shell`: run commands and tests
+- `read_file`: paginated text reads
+- `edit_file`: create files or perform one exact replacement
+- `calculator`: evaluate expressions
+- `search`: deterministic mock search
+- `todo`: add, list, and complete session todos
+
+All-read-only batches execute concurrently. A batch containing a mutation runs sequentially in model order. Every call ID receives a structured result, including invalid, unknown, or denied calls. Side effects are idempotent by `(user_id, session_id, tool_call_id)`.
+
+Defaults are 80 logical LLM calls, 120 tool calls, a 60-minute deadline, and a three-identical-observation circuit breaker.
+
+## Memory and Context
+
+SQLite stores sessions, titles, the complete audit transcript, summaries, todos, and tool runs. Every operation is scoped by user and session. At roughly 900K estimated prompt tokens, only completed old user-turn blocks are summarized; recent turns and active tool chains remain intact. Tool-call `reasoning_content` is persisted and replayed as required by DeepSeek thinking mode.
 
 ## Verify
 
@@ -44,24 +104,13 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo test --test live_deepseek -- --ignored --nocapture
+cargo test --test keyring -- --ignored --nocapture
 ```
 
-The live test is opt-in and requires `DEEPSEEK_API_KEY`. Offline tests use a scripted LLM and never spend API credit.
-
-## Runtime Design
-
-For each user message the runtime loads the session summary and uncompacted message tail, sends the registered tool schemas to DeepSeek, and parses the first assistant choice. A final `content` ends the run. Tool calls are parsed and validated before approval. Every call ID receives a tool result, including unknown tools, malformed arguments, and denied batches. Results are appended in model order and the loop continues.
-
-All-read-only batches execute concurrently. A batch containing `shell`, `edit_file`, or a mutating Todo action executes sequentially. Defaults are 80 logical LLM calls, 120 tool calls, a 60-minute deadline, and a three-identical-observation circuit breaker.
-
-## Memory and Context
-
-SQLite stores the full audit transcript, session summary, todos, and tool runs. Every lookup and mutation is scoped by both user and session. Recent messages, active tool chains, the current user input, and the summary enter model context. Todo state is recalled through the `todo` tool rather than copied into every prompt.
-
-At roughly 900K estimated prompt tokens, the runtime summarizes only completed old user-turn blocks, keeps four recent complete turns, and marks the summarized prefix as compacted. Assistant tool-call messages are never separated from their tool results. Tool-call `reasoning_content` is persisted and replayed as required by DeepSeek thinking mode.
+The DeepSeek test spends API credit. Offline tests use a scripted LLM.
 
 ## Execution Boundary
 
-This project deliberately does **not** implement an OS sandbox. `shell`, absolute file reads, and absolute file edits run with the permissions of the current process. `require-approval` provides controllable human intervention, not isolation. Use `full-access` only in a disposable workspace or restricted machine. Child shell processes do not inherit `DEEPSEEK_API_KEY`, but they may still access other host resources available to the user.
+This project deliberately does **not** implement an OS sandbox. `shell`, absolute file reads, and absolute file edits run with the current process permissions. Approval provides human intervention, not isolation. Use `full-access` only in a trusted or disposable environment. Child shell processes do not inherit `DEEPSEEK_API_KEY`, but they can access other host resources available to the user.
 
-See [docs/DESIGN.md](docs/DESIGN.md), [docs/PROMPTS.md](docs/PROMPTS.md), [docs/AI_DEVLOG.md](docs/AI_DEVLOG.md), and [docs/demo-script.md](docs/demo-script.md).
+See `docs/DESIGN.md`, `docs/PROMPTS.md`, `docs/AI_DEVLOG.md`, and `docs/demo-script.md`.

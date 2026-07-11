@@ -21,21 +21,28 @@ pub struct DeepSeekClient {
 }
 
 impl DeepSeekClient {
-    pub fn from_env() -> Result<Self> {
-        let api_key = std::env::var("DEEPSEEK_API_KEY")
-            .map_err(|_| AgentError::Config("DEEPSEEK_API_KEY is not set".into()))?;
-        let base = std::env::var("DEEPSEEK_BASE_URL")
-            .unwrap_or_else(|_| "https://api.deepseek.com".into());
+    pub fn new(api_key: impl Into<String>, base_url: impl AsRef<str>) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(660))
             .build()?;
         Ok(Self {
             client,
-            api_key,
-            endpoint: format!("{}/chat/completions", base.trim_end_matches('/')),
+            api_key: api_key.into(),
+            endpoint: format!(
+                "{}/chat/completions",
+                base_url.as_ref().trim_end_matches('/')
+            ),
             retries: 2,
         })
+    }
+
+    pub fn from_env() -> Result<Self> {
+        let api_key = std::env::var("DEEPSEEK_API_KEY")
+            .map_err(|_| AgentError::Config("DEEPSEEK_API_KEY is not set".into()))?;
+        let base = std::env::var("DEEPSEEK_BASE_URL")
+            .unwrap_or_else(|_| "https://api.deepseek.com".into());
+        Self::new(api_key, base)
     }
 }
 

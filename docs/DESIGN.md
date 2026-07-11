@@ -4,6 +4,12 @@
 
 Mini Coding Agent is a single-process CLI runtime. The model decides whether to answer or call tools from JSON Schemas; the runtime owns validation, permissions, execution, persistence, budgets, and tracing. There is no keyword router and no agent framework.
 
+## CLI Product Layer
+
+The installed binary is `agent-demo`. No arguments starts a new persistent REPL session. A pure slash-command parser intercepts `/new`, `/resume`, `/sessions`, `/permission`, `/trace`, `/status`, `/config`, and `/exit`; these commands never reach the LLM. `agent-demo run` provides one-shot automation and JSON output.
+
+Ordinary configuration is JSON in the platform config directory. The API key is resolved from `DEEPSEEK_API_KEY` first, otherwise from the operating-system credential manager. The key is never serialized with application configuration.
+
 ## State Machine
 
 ```text
@@ -29,6 +35,8 @@ DeepSeek may return several tool calls. If every validated call is read-only, `j
 ## Session Memory
 
 `sessions`, `messages`, `todos`, and `tool_runs` are SQLite tables. Message sequence allocation uses an immediate transaction. Complete transcript rows remain available for audit even after their prefix is replaced by a summary in model context.
+
+Sessions have short generated IDs, a title derived from the first user message, and an activity timestamp. Empty sessions are hidden and deleted on exit or session switch. `/resume` changes only the active `(user_id, session_id)` key; the same Runtime and database continue serving the REPL.
 
 ## Context Compaction
 

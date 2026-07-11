@@ -4,13 +4,24 @@ use std::{
 };
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::tools::PreparedCall;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
     FullAccess,
     RequireApproval,
+}
+
+impl std::fmt::Display for PermissionMode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FullAccess => formatter.write_str("full-access"),
+            Self::RequireApproval => formatter.write_str("require-approval"),
+        }
+    }
 }
 
 impl FromStr for PermissionMode {

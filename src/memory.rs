@@ -17,6 +17,13 @@ pub struct StoredMessage {
     pub message: ChatMessage,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionInfo {
+    pub session_id: String,
+    pub title: String,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Memory {
     path: PathBuf,
@@ -35,6 +42,7 @@ impl Memory {
                  CREATE TABLE IF NOT EXISTS sessions (
                     user_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
                     summary TEXT NOT NULL DEFAULT '',
                     compacted_through INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
@@ -69,6 +77,12 @@ impl Memory {
                     PRIMARY KEY(user_id, session_id, call_id)
                  );",
             )?;
+            if !has_column(connection, "sessions", "title")? {
+                connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
             Ok(())
         })?;
         Ok(memory)
@@ -88,6 +102,82 @@ impl Memory {
                 params![key.user_id, key.session_id, now],
             )?;
             Ok(())
+        })
+    }
+
+    pub fn session_exists(&self, key: &SessionKey) -> Result<bool> {
+        self.with_connection(|connection| {
+            Ok(connection
+                .query_row(
+                    "SELECT 1 FROM sessions WHERE user_id=?1 AND session_id=?2",
+                    params![key.user_id, key.session_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some())
+        })
+    }
+
+    pub fn set_title_if_empty(&self, key: &SessionKey, title: &str) -> Result<()> {
+        self.with_connection(|connection| {
+            connection.execute(
+                "UPDATE sessions SET title=?3,updated_at=?4
+                 WHERE user_id=?1 AND session_id=?2 AND title=''",
+                params![key.user_id, key.session_id, title, now_millis()],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_sessions(&self, user_id: &str, limit: usize) -> Result<Vec<SessionInfo>> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT session_id,title,updated_at FROM sessions
+                 WHERE user_id=?1 AND (
+                    title<>'' OR EXISTS(
+                        SELECT 1 FROM messages
+                        WHERE messages.user_id=sessions.user_id
+                          AND messages.session_id=sessions.session_id
+                    )
+                 ) ORDER BY updated_at DESC LIMIT ?2",
+            )?;
+            let rows = statement.query_map(params![user_id, limit as i64], |row| {
+                Ok(SessionInfo {
+                    session_id: row.get(0)?,
+                    title: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+    }
+
+    pub fn delete_session_if_empty(&self, key: &SessionKey) -> Result<bool> {
+        self.with_connection(|connection| {
+            Ok(connection.execute(
+                "DELETE FROM sessions
+                 WHERE user_id=?1 AND session_id=?2
+                   AND NOT EXISTS(
+                       SELECT 1 FROM messages
+                       WHERE messages.user_id=sessions.user_id
+                         AND messages.session_id=sessions.session_id
+                   )",
+                params![key.user_id, key.session_id],
+            )? == 1)
+        })
+    }
+
+    pub fn session_title(&self, key: &SessionKey) -> Result<Option<String>> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT title FROM sessions WHERE user_id=?1 AND session_id=?2",
+                    params![key.user_id, key.session_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(Into::into)
         })
     }
 
@@ -266,4 +356,15 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+fn has_column(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for name in names {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

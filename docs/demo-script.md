@@ -1,22 +1,34 @@
 # Terminal Recording Script
 
-1. Show `cargo test` passing.
-2. Export a newly issued `DEEPSEEK_API_KEY` without showing its value.
-3. Start window 1:
+1. Install and verify:
 
    ```powershell
-   cargo run -- chat --user user-a --session window-1 --permission require-approval
+   cargo install --path .
+   cargo test
    ```
 
-4. Ask: `Read Cargo.toml, calculate 23*19, add a todo to review the result, then run cargo test.` Approve the displayed batch and show tool traces.
-5. Ask a follow-up: `Complete the todo you just added.`
-6. Start window 2 with `--session window-2`, ask it to list todos, and show that window 1's todo is absent.
-7. In window 2 ask it to create `demo.txt`, read it back, and run a shell command that verifies its contents.
-8. Return to window 1 and ask a pure conversational follow-up to demonstrate persistent history.
-9. Briefly show `.mini-agent.db`, `docs/DESIGN.md`, and JSON trace mode:
+2. Run `agent-demo config`. Show the wizard but never reveal the API key. Explain that the key enters the operating-system credential manager.
+3. Start with no arguments:
 
    ```powershell
-   cargo run -- --json-logs chat --user user-a --session trace-demo --permission full-access
+   agent-demo
    ```
 
-Do not display the API key or paste `.env` contents in the recording.
+4. Ask: `Read Cargo.toml, calculate 23*19, add a todo to review the result, then run cargo test.` Approve the displayed tool batch and show readable tool progress.
+5. Run `/status`, `/sessions`, and `/trace on`.
+6. Switch permission without restarting:
+
+   ```text
+   /permission full-access
+   ```
+
+7. Ask: `Create demo.txt, read it back, and use shell to verify its contents.` Show that no approval is requested.
+8. Exit with `/exit`, run `agent-demo` again, then use `/resume` to select the previous titled session.
+9. Ask: `What did we change, and which todo remains?` This demonstrates restored conversation and structured session state.
+10. Show one-shot automation:
+
+    ```powershell
+    agent-demo run --json --permission full-access "Use calculator to compute 2468*1357"
+    ```
+
+Do not display the API key, Credential Manager entry, environment contents, or a real `.env` file.

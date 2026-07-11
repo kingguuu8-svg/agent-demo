@@ -15,6 +15,7 @@ The assignment requested a minimal agent loop, schema-based tools, sessions, con
 7. Tool errors and denial are returned to the model so it can recover instead of terminating the runtime.
 8. Full assistant tool-call messages, including reasoning content, are replayed to satisfy DeepSeek thinking-mode protocol.
 9. Context compression happens late and only at complete user-turn boundaries.
+10. The first CLI exposed Runtime internals (`chat --user --session`). Product review replaced it with an installed `agent-demo` command, no-argument sessions, slash commands, one-shot mode, masked interactive configuration, and OS credential storage.
 
 ## AI-Assisted Review
 

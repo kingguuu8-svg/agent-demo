@@ -1,13 +1,18 @@
 pub mod agent;
+pub mod commands;
+pub mod config;
 pub mod context;
 pub mod error;
 pub mod llm;
 pub mod memory;
 pub mod model;
 pub mod permission;
+pub mod renderer;
+pub mod repl;
 pub mod tools;
 
 pub use agent::{Agent, AgentConfig, AgentReply, StopReason};
+pub use config::{AppConfig, ConfigStore, CredentialStore, KeyringCredentialStore};
 pub use error::{AgentError, Result};
 pub use llm::{DeepSeekClient, LlmClient};
 pub use memory::Memory;
