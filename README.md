@@ -2,6 +2,10 @@
 
 An execution-capable coding agent runtime written from scratch in Rust. It calls the real DeepSeek Chat Completions API directly and does not use LangGraph, OpenHands, OpenClaw, or another agent framework.
 
+## Submission and Self-Hosting Proof
+
+The [submission checklist](SUBMISSION.md) maps every interview deliverable to concrete evidence. As an end-to-end capability proof, this Rust Agent was asked to create a second agent implementation in Go. The resulting [Go Agent Demo](examples/go-agent-demo/README.md) is included with its generation prompt, issue-resolution log, deterministic tests, and an opt-in real DeepSeek regression. It is intentionally smaller than the primary runtime; the root Rust project remains the requirements-complete submission.
+
 ## Install and Start
 
 On Windows, place `install.cmd` beside `agent-demo.exe`, then double-click `install.cmd` or run it from any terminal. It installs the command for the current user and opens first-time setup. Open a new terminal and start with:

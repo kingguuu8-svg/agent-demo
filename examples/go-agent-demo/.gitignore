@@ -1,0 +1,5 @@
+*.exe
+*.exe~
+.env
+deepseek.key
+api_key.txt
