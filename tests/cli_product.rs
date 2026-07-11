@@ -136,6 +136,8 @@ fn slash_parser_is_deterministic() {
     );
     assert_eq!(parse_command("/trace on"), ReplCommand::Trace(true));
     assert_eq!(parse_command("/paste"), ReplCommand::Paste);
+    assert_eq!(parse_command("/history"), ReplCommand::History(20));
+    assert_eq!(parse_command("/history 100"), ReplCommand::History(100));
     assert!(matches!(parse_command("/bad"), ReplCommand::Unknown(_)));
 }
 
@@ -329,8 +331,14 @@ async fn resume_replays_previous_session_history() {
     memory
         .append_message(&old, &ChatMessage::user("old question"))
         .unwrap();
+    let mut old_answer = assistant("old answer");
+    old_answer.reasoning_content = Some("private chain of thought".into());
+    memory.append_message(&old, &old_answer).unwrap();
     memory
-        .append_message(&old, &assistant("old answer"))
+        .append_message(
+            &old,
+            &ChatMessage::tool("old-tool", r#"{"large":"raw tool payload"}"#),
+        )
         .unwrap();
     memory.set_title_if_empty(&old, "Old work").unwrap();
     let llm = Arc::new(ScriptedLlm::new(vec![assistant("continued")]));
@@ -357,6 +365,11 @@ async fn resume_replays_previous_session_history() {
     )
     .unwrap();
     repl.run().await.unwrap();
+    assert!(repl.terminal().output.contains("Conversation history"));
+    assert!(repl.terminal().output.contains("You:\nold question"));
+    assert!(repl.terminal().output.contains("Agent:\nold answer"));
+    assert!(!repl.terminal().output.contains("private chain of thought"));
+    assert!(!repl.terminal().output.contains("raw tool payload"));
     let requests = llm.requests();
     assert_eq!(requests.len(), 1);
     assert!(
@@ -371,6 +384,46 @@ async fn resume_replays_previous_session_history() {
             .iter()
             .any(|message| message.content.as_deref() == Some("follow up"))
     );
+}
+
+#[tokio::test]
+async fn explicit_session_on_start_prints_restored_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let memory = Arc::new(Memory::open(temp.path().join("agent.db")).unwrap());
+    let saved = SessionKey::new("u", "start-session");
+    memory
+        .append_message(&saved, &ChatMessage::user("remember this"))
+        .unwrap();
+    memory
+        .append_message(&saved, &assistant("remembered"))
+        .unwrap();
+    let renderer = Arc::new(ConsoleRenderer::new(false));
+    let agent = Agent::new(
+        Arc::new(ScriptedLlm::new(vec![])),
+        memory.clone(),
+        ToolRegistry::standard(),
+        Arc::new(Deny),
+        PermissionMode::RequireApproval,
+        temp.path().into(),
+        AgentConfig::default(),
+    );
+    let terminal = FakeTerminal::new(&["/exit"]);
+    let mut repl = Repl::new(
+        agent,
+        memory,
+        terminal,
+        "u".into(),
+        Some("start-session".into()),
+        temp.path().into(),
+        temp.path().join("config.json"),
+        renderer,
+    )
+    .unwrap();
+
+    repl.run().await.unwrap();
+
+    assert!(repl.terminal().output.contains("You:\nremember this"));
+    assert!(repl.terminal().output.contains("Agent:\nremembered"));
 }
 
 #[tokio::test]

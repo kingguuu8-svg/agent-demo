@@ -8,6 +8,7 @@ pub enum ReplCommand {
     New,
     Resume(Option<String>),
     Sessions,
+    History(usize),
     Permission(Option<PermissionMode>),
     Paste,
     Config,
@@ -33,6 +34,15 @@ pub fn parse_command(input: &str) -> ReplCommand {
         "/new" => ReplCommand::New,
         "/resume" => ReplCommand::Resume(argument.map(str::to_owned)),
         "/sessions" => ReplCommand::Sessions,
+        "/history" => match argument {
+            None => ReplCommand::History(20),
+            Some(value) => value
+                .parse::<usize>()
+                .ok()
+                .filter(|limit| (1..=500).contains(limit))
+                .map(ReplCommand::History)
+                .unwrap_or_else(|| ReplCommand::Unknown(trimmed.into())),
+        },
         "/permission" => match argument {
             None => ReplCommand::Permission(None),
             Some(value) => PermissionMode::from_str(value)

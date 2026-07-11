@@ -51,6 +51,7 @@ Inside the REPL:
 /new                         create a new session
 /resume [session-id]         list or resume saved sessions
 /sessions                    list recent sessions
+/history [limit]             show restored conversation history
 /permission [mode]           show or change execution permission
 /paste                       enter a multi-line request; finish with `.`
 /trace on|off                toggle detailed tool output
@@ -62,7 +63,7 @@ Inside the REPL:
 
 Normal terminal paste is kept as one request. `/paste` is a compatibility fallback for terminals without bracketed-paste support. While the agent is working, press `Esc` to stop the current request without losing the session. `Ctrl-C` clears the current input line, and Up/Down recall input history for the current process.
 
-The first user message becomes a short session title. Empty sessions are discarded. `/resume` restores conversation history, tool observations, summary memory, and session-scoped todos.
+The first user message becomes a short session title. Empty sessions are discarded. `/resume` restores conversation history, tool observations, summary memory, and session-scoped todos, then prints the latest 20 user/agent messages. `/history 100` can show more. Internal reasoning and raw tool payloads are deliberately not printed.
 
 Permissions can change without restarting:
 

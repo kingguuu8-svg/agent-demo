@@ -6,7 +6,7 @@ Mini Coding Agent is a single-process CLI runtime. The model decides whether to 
 
 ## CLI Product Layer
 
-The installed binary is `agent-demo`. No arguments starts a new persistent REPL session. A pure slash-command parser intercepts `/new`, `/resume`, `/sessions`, `/permission`, `/paste`, `/trace`, `/status`, `/config`, and `/exit`; these commands never reach the LLM. The line editor preserves bracketed multi-line paste as one request. During execution an Esc watcher cancels the in-flight HTTP or tool future; shell children use kill-on-drop, and the runtime closes the interrupted conversation turn so the session remains valid. `agent-demo run` provides one-shot automation and JSON output.
+The installed binary is `agent-demo`. No arguments starts a new persistent REPL session. A pure slash-command parser intercepts `/new`, `/resume`, `/sessions`, `/history`, `/permission`, `/paste`, `/trace`, `/status`, `/config`, and `/exit`; these commands never reach the LLM. Resume renders the compressed summary and recent user/assistant messages while intentionally hiding reasoning and raw tool payloads. The line editor preserves bracketed multi-line paste as one request. During execution an Esc watcher cancels the in-flight HTTP or tool future; shell children use kill-on-drop, and the runtime closes the interrupted conversation turn so the session remains valid. `agent-demo run` provides one-shot automation and JSON output.
 
 Ordinary configuration is JSON in the platform config directory. The API key is resolved from `DEEPSEEK_API_KEY` first, otherwise from the operating-system credential manager. The key is never serialized with application configuration.
 

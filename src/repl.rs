@@ -83,6 +83,7 @@ pub struct Repl<T: Terminal> {
     workspace: PathBuf,
     config_path: PathBuf,
     renderer: Arc<ConsoleRenderer>,
+    show_history_on_start: bool,
 }
 
 impl<T: Terminal> Repl<T> {
@@ -97,6 +98,7 @@ impl<T: Terminal> Repl<T> {
         config_path: PathBuf,
         renderer: Arc<ConsoleRenderer>,
     ) -> Result<Self> {
+        let show_history_on_start = session_id.is_some();
         let session = SessionKey::new(&user_id, session_id.unwrap_or_else(new_session_id));
         memory.ensure_session(&session)?;
         Ok(Self {
@@ -108,6 +110,7 @@ impl<T: Terminal> Repl<T> {
             workspace,
             config_path,
             renderer,
+            show_history_on_start,
         })
     }
 
@@ -121,6 +124,9 @@ impl<T: Terminal> Repl<T> {
 
     pub async fn run(&mut self) -> Result<()> {
         self.banner()?;
+        if self.show_history_on_start {
+            self.show_history(20)?;
+        }
         loop {
             self.terminal.write(&format!(
                 "\n[{} | {}] ❯ ",
@@ -138,6 +144,7 @@ impl<T: Terminal> Repl<T> {
                 ReplCommand::New => self.new_session()?,
                 ReplCommand::Resume(session) => self.resume(session)?,
                 ReplCommand::Sessions => self.show_sessions()?,
+                ReplCommand::History(limit) => self.show_history(limit)?,
                 ReplCommand::Permission(permission) => self.permission(permission)?,
                 ReplCommand::Paste => {
                     if let Some(message) = self.read_paste()? {
@@ -288,7 +295,8 @@ impl<T: Terminal> Repl<T> {
         }
         self.session = key;
         self.terminal
-            .write(&format!("Resumed session {session_id}.\n"))
+            .write(&format!("Resumed session {session_id}.\n"))?;
+        self.show_history(20)
     }
 
     fn show_sessions(&mut self) -> Result<()> {
@@ -313,6 +321,45 @@ impl<T: Terminal> Repl<T> {
                 session.session_id,
                 title
             ))?;
+        }
+        Ok(())
+    }
+
+    fn show_history(&mut self, limit: usize) -> Result<()> {
+        let summary = self.memory.summary(&self.session)?;
+        let messages = self.memory.load_active_messages(&self.session)?;
+        let conversation: Vec<_> = messages
+            .iter()
+            .filter(|item| matches!(item.message.role.as_str(), "user" | "assistant"))
+            .filter_map(|item| {
+                item.message
+                    .content
+                    .as_deref()
+                    .filter(|content| !content.trim().is_empty())
+                    .map(|content| (item.message.role.as_str(), content))
+            })
+            .collect();
+        if summary.trim().is_empty() && conversation.is_empty() {
+            return self.terminal.write("No conversation history.\n");
+        }
+        self.terminal.write("\nConversation history\n")?;
+        if !summary.trim().is_empty() {
+            self.terminal.write(&format!(
+                "\nEarlier context (compressed):\n{}\n",
+                summary.trim()
+            ))?;
+        }
+        let omitted = conversation.len().saturating_sub(limit);
+        if omitted > 0 {
+            self.terminal.write(&format!(
+                "\n... {omitted} older message(s) hidden; use `/history {}` to show more.\n",
+                conversation.len().min(500)
+            ))?;
+        }
+        for (role, content) in conversation.into_iter().skip(omitted) {
+            let label = if role == "user" { "You" } else { "Agent" };
+            self.terminal
+                .write(&format!("\n{label}:\n{}\n", content.trim()))?;
         }
         Ok(())
     }
@@ -360,6 +407,7 @@ impl<T: Terminal> Repl<T> {
             "/new                         create a new session\n\
              /resume [session-id]          list or resume sessions\n\
              /sessions                     list recent sessions\n\
+             /history [limit]              show conversation history (default 20)\n\
              /permission [mode]            show or change execution permission\n\
              /paste                        enter a multi-line request\n\
              /trace on|off                 toggle detailed tool output\n\
